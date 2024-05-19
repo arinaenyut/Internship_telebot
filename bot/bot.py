@@ -279,11 +279,11 @@ def getAptList(update: Update, context):
     client = SshCreateConnection()
 
     if user_input.lower() == 'все' or user_input.lower() == 'all':
-        data = SshExecCommand(client, 'dpkg -l | head -n15')
+        data = SshExecCommand(client, 'apt list --installed | head -n15')
         text = 'Информация о всех установленных пакетах (первые 15):\n\n'
     
     elif re.match(r"^[A-Za-z0-9\-\+\:\.]*$", user_input):
-        data = SshExecCommand(client, f'dpkg -l | grep -i {user_input} | head -n10')
+        data = SshExecCommand(client, f'apt list --installed | grep -i {user_input} | head -n10')
         text = f'Информация о найденных пакетах {user_input}:\n\n'
     else:
         update.message.reply_text('Неверное название пакета')
