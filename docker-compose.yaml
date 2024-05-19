@@ -1,0 +1,78 @@
+version: '3.8'
+services:
+  bot:
+    build:
+      context: ./bot
+      dockerfile: Dockerfile
+    container_name: bot
+    env_file:
+      - .env
+    depends_on:
+      - db
+    volumes:
+      - logs:/var/log/postgresql
+
+
+  db:
+    build:
+      context: ./db
+      dockerfile: Dockerfile
+      args:
+        DB_REPL_USER: ${DB_REPL_USER}
+        DB_REPL_PASSWORD: ${DB_REPL_PASSWORD}
+    container_name: db
+    ports:
+      - ${DB_PORT}:5432
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_DB: ${DB_DATABASE}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_HOST_AUTH_METHOD: "scram-sha-256\nhost replication ${DB_REPL_USER} 0.0.0.0/0 md5"
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+    command: |
+      postgres
+      -c port=${DB_PORT}
+      -c wal_level=replica 
+      -c max_wal_senders=10 
+      -c wal_log_hints=on 
+      -c max_replication_slots=10
+      -c archive_mode=on 
+      -c archive_command='cp %p /oracle/pg_data/archive/%f'
+      -c log_replication_commands=on
+      -c logging_collector=on
+      -c log_file_mode=0624
+      -c log_directory='/var/log/postgresql'
+      -c log_destination=stderr
+      -c log_filename='postgres.log'
+
+
+    volumes:
+      - logs:/var/log/postgresql
+
+  db_repl:
+    build:
+      context: ./db_repl
+      dockerfile: Dockerfile
+    container_name: db_repl
+    user: postgres
+    ports:
+      - ${DB_REPL_PORT}:5432
+    environment:
+      PGUSER: ${DB_REPL_USER}
+      PGPASSWORD: ${DB_REPL_PASSWORD}
+    command: |
+      bash -c "
+      until pg_basebackup --pgdata=/var/lib/postgresql/data -R --slot=replication_slot --host=db --port=${DB_PORT}
+      do
+      echo 'Waiting for primary to connect...'
+      sleep 1s
+      done
+      echo 'Backup done, starting replica...'
+      chmod 0700 /var/lib/postgresql/data
+      postgres
+      "
+    depends_on:
+      - db
+
+volumes:
+  logs:
