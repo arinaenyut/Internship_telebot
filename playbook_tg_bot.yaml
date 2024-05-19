@@ -1,0 +1,172 @@
+- name: Master server configuration
+  hosts: host_db
+  become: yes
+  vars_files:
+    - ./vars.yaml
+  tasks:
+
+  - name: Installing package
+    apt:
+      name:
+        - postgresql
+        - postgresql-contrib
+        - python3-psycopg2
+        - libpq-dev
+      state: latest
+
+  - name: Configure pg_hba by copying the configuration file
+    copy:
+      dest: /etc/postgresql/15/main/pg_hba.conf
+      src: pg_hba.conf
+
+  - name: Configure postgresql by copying the configuration file
+    copy:
+      dest: /etc/postgresql/15/main/postgresql.conf
+      src: config-postgresql
+
+  - name: Restarting postgresql on Master server
+    service:
+      name: postgresql
+      state: restarted
+
+  - name: Creating database
+    become_user: postgres
+    community.general.postgresql_db:
+      name: "{{ DB_DATABASE }}"
+
+  - name: Creating db user
+    community.postgresql.postgresql_user:
+      state: present
+      name: "{{ DB_USER }}"
+      password: "{{ DB_PASSWORD }}"
+    become_user: postgres
+
+  - name: Grant priv for db user
+    become_user: postgres
+    community.postgresql.postgresql_privs:
+      type: database
+      database: "{{ DB_DATABASE }}"
+      roles: "{{ DB_USER }}"
+      privs: all
+
+  - name: Creating table email_addresses
+    become_user: postgres
+    community.postgresql.postgresql_table:
+      db: "{{ DB_DATABASE }}"
+      owner: postgres
+      name: email_addresses
+      columns:
+        - id bigserial primary key
+        - email text
+
+  - name: Creating table phone_numbers
+    become_user: postgres
+    community.postgresql.postgresql_table:
+      db: "{{ DB_DATABASE }}"
+      owner: postgres
+      name: phone_numbers
+      columns:
+        - id bigserial primary key
+        - number text
+
+  - name: Inserting value into table emails
+    become_user: postgres
+    postgresql_query:
+      db: "{{ DB_DATABASE }}"
+      query: INSERT INTO email_addresses (email) VALUES ('arina@arina.ar')
+
+  - name: Inserting value into table phone_numbers
+    become_user: postgres
+    postgresql_query:
+      db: "{{ DB_DATABASE  }}"
+      query: INSERT INTO phone_numbers (number) VALUES ('88008888888')
+
+  - name: Creating user for replication
+    become_user: postgres
+    postgresql_user:
+      name: "{{ DB_REPL_USER }}"
+      password: "{{ DB_REPL_PASSWORD}}"
+      role_attr_flags: REPLICATION,LOGIN
+
+  - name: Creating user archive directory
+    file:
+      path: /oracle/pg_data/archive/
+      owner: postgres
+      group: postgres
+      state: directory
+
+- name: Slave server configuration
+  hosts: host_db_repl
+  become: yes
+  vars_files:
+    - ./vars.yaml
+  tasks:
+
+  - name: Installing package
+    apt:
+      name:
+        - postgresql
+        - postgresql-contrib
+        - python3-psycopg2
+      state: latest
+
+  - name: Configure Slave server
+    lineinfile:
+      path: "/etc/postgresql/15/main/postgresql.conf"
+      line: "listen_addresses = 'localhost, {{ hostvars['host_db_repl']['ansible_host'] }}'"
+
+
+  - name: Stop sql
+    service:
+      name: postgresql
+      state: stopped
+
+  - name: Delete postgresql content from Slave server
+    file:
+      state: absent
+      path: /var/lib/postgresql/15/main
+
+  - name: Copy databases from Master server
+    become_user: postgres
+    environment:
+      PGPASSWORD: "{{ DB_REPL_PASSWORD }}"
+    command: pg_basebackup -R -h {{ hostvars['host_db']['ansible_host'] }} -U "{{ DB_REPL_USER }}" -D /var/lib/postgresql/15/main -P
+
+  - name: Starting sql
+    service:
+      name: postgresql
+      state: started
+
+- name: Configure environment for telegram bot
+  hosts: host_bot
+  become: yes
+
+  tasks:
+  - name: Clone from github
+    git:
+      repo: https://github.com/arinaenyut/Telebot.git
+      dest: ./testbotgit
+      single_branch: yes
+      version: docker
+
+  - name: Installing package
+    apt:
+      name:
+        - python3-pip
+
+  - name: installing requirements
+    pip:
+      requirements: /home/debian/bot/requirements.txt
+
+  - name: Copying dot-env file
+    copy:
+      src: .env
+      dest: testbotgit/bot/
+
+  - name: run bot
+    shell: python3 testbotgit/bot/bot.py
+
+
+
+
+

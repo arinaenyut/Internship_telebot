@@ -1,0 +1,5 @@
+DB_REPL_USER: repl_user
+DB_REPL_PASSWORD: Qq12345
+DB_DATABASE: tg_bot_info
+DB_USER: postgres
+DB_PASSWORD: Qq12345
